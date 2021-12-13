@@ -54,7 +54,9 @@
 //! The argument values may contain numeric values. However, all pointers MUST be translated to an offset from the beginning of the data section.
 
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(feature = "asm", feature(asm))]
 
+pub mod host;
 pub(crate) mod item;
 
 /// Error type used within this crate.
