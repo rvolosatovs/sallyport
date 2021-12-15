@@ -149,10 +149,8 @@ fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
     let capacity = SlicePtr::len(ptr).checked_sub(2 * size_of::<usize>())?;
 
     let ptr = ptr as *mut usize;
-    let (size, ptr) = unsafe { read_first(ptr) };
+    let ([size, kind], ptr) = unsafe { read_array(ptr) };
     let capacity = capacity.checked_sub(size)?;
-
-    let (kind, ptr) = unsafe { read_first(ptr) };
     match kind {
         kind if kind == item::Kind::End as _ => return None,
 
