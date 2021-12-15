@@ -4,7 +4,7 @@
 
 use crate::{item, SlicePtr};
 
-use core::mem::size_of;
+use core::mem::{align_of, size_of};
 use core::ptr::{slice_from_raw_parts_mut, NonNull};
 use libc::c_long;
 
@@ -165,10 +165,12 @@ fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
         }
         _ => (),
     };
-    Some(slice_from_raw_parts_mut(
-        unsafe { ptr.cast::<u8>().add(size) },
-        capacity,
-    ))
+
+    let ptr = unsafe { ptr.cast::<u8>().add(size) };
+    let padding = ptr.align_offset(align_of::<usize>());
+    let capacity = capacity.checked_sub(padding)?;
+    let ptr = unsafe { ptr.add(padding) };
+    Some(slice_from_raw_parts_mut(ptr, capacity))
 }
 
 /// Executes the passed `block`.
