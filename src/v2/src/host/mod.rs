@@ -155,8 +155,8 @@ fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
         kind if kind == item::Kind::End as _ => return None,
 
         kind if kind == item::Kind::Syscall as _ => {
-            let size = size.checked_sub(9 * size_of::<usize>())?;
-            let (num, ptr) = unsafe { read_first(ptr) };
+            let _size = size.checked_sub(9 * size_of::<usize>())?;
+            let (num, _ptr) = unsafe { read_first(ptr) };
             match num {
                 _ => (),
             }
