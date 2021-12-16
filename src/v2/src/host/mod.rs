@@ -3,8 +3,9 @@
 //! Host-specific functionality.
 
 use crate::{item, SlicePtr};
+use core::marker::PhantomData;
 
-use core::mem::{align_of, size_of};
+use core::mem::size_of;
 use core::ptr::{slice_from_raw_parts_mut, NonNull};
 use libc::c_long;
 
@@ -152,35 +153,95 @@ unsafe fn read_array<T, const N: usize>(ptr: *mut T) -> ([T; N], *mut T) {
 ///
 /// `ptr` must be aligned to `align_of::<usize>()`.
 ///
-unsafe fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
-    let capacity = SlicePtr::len(ptr).checked_sub(2 * size_of::<usize>())?;
-
-    let ptr = ptr as *mut usize;
-    let ([size, kind], ptr) = read_array(ptr);
-    let capacity = capacity.checked_sub(size)?;
-    match kind {
-        kind if kind == item::Kind::End as _ => return None,
-
-        kind if kind == item::Kind::Syscall as _ => {
-            let _size = size.checked_sub(9 * size_of::<usize>())?;
-            let (num, _ptr) = read_first(ptr);
-            match num {
-                _ => (),
-            }
-        }
-        _ => (),
-    };
-
-    let ptr = ptr.cast::<u8>().add(size);
-    let padding = ptr.align_offset(align_of::<usize>());
-    let capacity = capacity.checked_sub(padding)?;
-    let ptr = ptr.add(padding);
-    Some(slice_from_raw_parts_mut(ptr, capacity))
+fn execute_item(_item: BlockItem) {
+    todo!()
 }
 
 /// Executes the passed `block`.
 #[inline]
-pub fn execute<const N: usize>(block: NonNull<[usize; N]>) {
-    let ptr = slice_from_raw_parts_mut(block.as_ptr() as _, N * size_of::<usize>());
-    unsafe { execute_item(ptr) };
+pub fn execute<const N: usize>(block: &mut [usize; N]) {
+    for item in BlockIter::new(NonNull::from(block)) {
+        execute_item(item)
+    }
+}
+
+#[derive(Debug)]
+struct BlockIter<'a, const N: usize> {
+    capacity: usize,
+    ptr: *mut usize,
+    inner: NonNull<[usize; N]>,
+    phantom: PhantomData<&'a ()>,
+}
+
+#[derive(Debug)]
+struct BlockItem<'a> {
+    pub kind: crate::item::Kind,
+    pub ptr: *mut [u8],
+    phantom: PhantomData<&'a ()>,
+}
+
+impl<const N: usize> BlockIter<'_, N> {
+    pub fn new(block: NonNull<[usize; N]>) -> Self {
+        Self {
+            capacity: N * size_of::<usize>(),
+            ptr: block.as_ptr() as _,
+            inner: block,
+            phantom: Default::default(),
+        }
+    }
+}
+
+impl<'a, const N: usize> Iterator for BlockIter<'a, N> {
+    type Item = BlockItem<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let header: item::Header = unsafe { self.ptr.cast::<item::Header>().read() };
+
+        if header.kind == item::Kind::End {
+            assert_eq!(header.size, 0);
+            return None;
+        }
+
+        if header.size % size_of::<usize>() != 0 {
+            return None;
+        }
+
+        let skip = size_of::<item::Header>() + header.size;
+
+        self.capacity = self.capacity.checked_sub(skip)?;
+
+        let usize_len = size_of::<item::Header>() / size_of::<usize>();
+        debug_assert_eq!(size_of::<item::Header>() % size_of::<usize>(), 0);
+        self.ptr = unsafe { self.ptr.add(usize_len) };
+
+        let ptr = self.ptr;
+
+        let usize_len = header.size / size_of::<usize>();
+        self.ptr = unsafe { self.ptr.add(usize_len) };
+
+        dbg!(header.size);
+
+        Some(BlockItem {
+            kind: header.kind,
+            ptr: slice_from_raw_parts_mut(ptr as *mut u8, header.size),
+            phantom: Default::default(),
+        })
+    }
+}
+
+#[test]
+fn test_iter() {
+    let mut block: [usize; 20] = [32, 1, 0, 0, 0, 0, 24, 1, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7];
+
+    let mut iter = BlockIter::new(NonNull::from(&mut block));
+
+    let next = iter.next().unwrap();
+    assert!(matches!(next.kind, item::Kind::Syscall));
+    assert_eq!(SlicePtr::len(next.ptr), 32);
+
+    let next = iter.next().unwrap();
+    assert!(matches!(next.kind, item::Kind::Syscall));
+    assert_eq!(SlicePtr::len(next.ptr), 24);
+
+    assert!(iter.next().is_none());
 }
