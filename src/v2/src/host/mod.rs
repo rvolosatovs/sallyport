@@ -145,18 +145,25 @@ unsafe fn read_array<T, const N: usize>(ptr: *mut T) -> ([T; N], *mut T) {
     (ptr.cast::<[T; N]>().read(), ptr.add(N))
 }
 
-fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
+/// Executes an item located at `ptr` and returns aligned pointer to next executable item on
+/// success.
+///
+/// # Safety
+///
+/// `ptr` must be aligned to `align_of::<usize>()`.
+///
+unsafe fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
     let capacity = SlicePtr::len(ptr).checked_sub(2 * size_of::<usize>())?;
 
     let ptr = ptr as *mut usize;
-    let ([size, kind], ptr) = unsafe { read_array(ptr) };
+    let ([size, kind], ptr) = read_array(ptr);
     let capacity = capacity.checked_sub(size)?;
     match kind {
         kind if kind == item::Kind::End as _ => return None,
 
         kind if kind == item::Kind::Syscall as _ => {
             let _size = size.checked_sub(9 * size_of::<usize>())?;
-            let (num, _ptr) = unsafe { read_first(ptr) };
+            let (num, _ptr) = read_first(ptr);
             match num {
                 _ => (),
             }
@@ -164,10 +171,10 @@ fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
         _ => (),
     };
 
-    let ptr = unsafe { ptr.cast::<u8>().add(size) };
+    let ptr = ptr.cast::<u8>().add(size);
     let padding = ptr.align_offset(align_of::<usize>());
     let capacity = capacity.checked_sub(padding)?;
-    let ptr = unsafe { ptr.add(padding) };
+    let ptr = ptr.add(padding);
     Some(slice_from_raw_parts_mut(ptr, capacity))
 }
 
@@ -175,5 +182,5 @@ fn execute_item(ptr: *mut [u8]) -> Option<*mut [u8]> {
 #[inline]
 pub fn execute<const N: usize>(block: NonNull<[usize; N]>) {
     let ptr = slice_from_raw_parts_mut(block.as_ptr() as _, N * size_of::<usize>());
-    execute_item(ptr);
+    unsafe { execute_item(ptr) };
 }
